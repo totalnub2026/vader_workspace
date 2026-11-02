@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yoda Phonics Learning Game</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #E0F7FA;
+            font-family: 'Comic Sans MS', cursive, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 400px;
+            margin-bottom: 20px;
+        }
+        .badge {
+            background-color: #FFEB3B;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 18px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .card {
+            background-color: #FFFFFF;
+            border-radius: 30px;
+            padding: 40px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 400px;
+            box-sizing: border-box;
+        }
+        .emoji {
+            font-size: 96px;
+            margin-bottom: 10px;
+        }
+        .phonics {
+            font-size: 24px;
+            color: #00796B;
+            margin-bottom: 30px;
+            font-weight: bold;
+        }
+        .slot-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 40px;
+        }
+        .slot {
+            width: 50px;
+            height: 60px;
+            border: 3px solid #90CAF9;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: bold;
+            background-color: #FFFFFF;
+        }
+        .tile-grid {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            width: 100%;
+        }
+        .tile {
+            padding: 15px 25px;
+            font-size: 24px;
+            font-weight: bold;
+            background-color: #FF9800;
+            color: #FFFFFF;
+            border: none;
+            border-radius: 15px;
+            cursor: pointer;
+            box-shadow: 0 6px #F57C00;
+            outline: none;
+        }
+        .tile:active {
+            transform: translateY(4px);
+            box-shadow: 0 2px #F57C00;
+        }
+        .feedback {
+            margin-top: 30px;
+            font-size: 24px;
+            font-weight: bold;
+            min-height: 35px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="badge" id="score-badge">⭐ Score: 0</div>
+        <div class="badge" id="progress-badge">Word 1 of 4</div>
+    </header>
+
+    <main class="card">
+        <div class="emoji" id="card-emoji">🐱</div>
+        <div class="phonics" id="card-phonics">/kæt/</div>
+
+        <div class="slot-row" id="slot-container"></div>
+        <div class="tile-grid" id="tile-container"></div>
+        <div class="feedback" id="feedback-message"></div>
+    </main>
+
+    <script>
+        // --- DATA STATE (Elephant Persistent Layer) ---
+        const vocabulary = [
+            { word: 'CAT', phonics: '/kæt/', emoji: '🐱' },
+            { word: 'SUN', phonics: '/sʌn/', emoji: '☀️' },
+            { word: 'DOG', phonics: '/dɒɡ/', emoji: '🐶' },
+            { word: 'TREE', phonics: '/triː/', emoji: '🌳' }
+        ];
+
+        let currentIndex = 0;
+        let assembledWord = [];
+        let stars = 0;
+        let audioCtx = null;
+
+        // --- AUDIO ENGINE (Goldfish Low-Latency Feedback Layer) ---
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playFeedbackSound(isSuccess) {
+            initAudio();
+            if (!audioCtx) return;
+            
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if (isSuccess) {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                osc.frequency.exponentialRampToValueAtTime(783.99, audioCtx.currentTime + 0.2); // G5
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } else {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(329.63, audioCtx.currentTime); // E4
+                osc.frequency.exponentialRampToValueAtTime(220.00, audioCtx.currentTime + 0.25); // A3
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            }
+        }
+
+        // --- GAME CONTROLLER ---
+        function loadCard() {
+            const current = vocabulary[currentIndex];
+            document.getElementById('card-emoji').innerText = current.emoji;
+            document.getElementById('card-phonics').innerText = current.phonics;
+            document.getElementById('progress-badge').innerText = `Word ${currentIndex + 1} of ${vocabulary.length}`;
+            document.getElementById('feedback-message').innerText = '';
+            assembledWord = [];
+
+            // Build empty slots
+            const slotContainer = document.getElementById('slot-container');
+            slotContainer.innerHTML = '';
+            for (let i = 0; i < current.word.length; i++) {
+                const slot = document.createElement('div');
+                slot.className = 'slot';
+                slot.id = `slot-${i}`;
+                slotContainer.appendChild(slot);
+            }
+
+            // Build scrambled tiles
+            const tilesContainer = document.getElementById('tile-container');
+            tilesContainer.innerHTML = '';
+            const letters = current.word.split('').sort(() => 0.5 - Math.random());
+            
+            letters.forEach(letter => {
+                const button = document.createElement('button');
+                button.className = 'tile';
+                button.innerText = letter;
+                button.onclick = () => selectLetter(letter, button);
+                tilesContainer.appendChild(button);
+            });
+        }
+
+        function selectLetter(letter, button) {
+            const current = vocabulary[currentIndex];
+            if (assembledWord.length >= current.word.length) return;
+
+            assembledWord.push(letter);
+            const currentSlotIndex = assembledWord.length - 1;
+            document.getElementById(`slot-${currentSlotIndex}`).innerText = letter;
+            button.style.visibility = 'hidden';
+
+            // Check conditions
+            if (assembledWord.length === current.word.length) {
+                const finalWord = assembledWord.join('');
+                const feedback = document.getElementById('feedback-message');
+                
+                if (finalWord === current.word) {
+                    feedback.innerText = 'Great Job! 🎉';
+                    feedback.style.color = '#4CAF50';
+                    stars++;
+                    document.getElementById('score-badge').innerText = `⭐ Score: ${stars}`;
+                    playFeedbackSound(true);
+
+                    setTimeout(() => {
+                        // FIXED: Avança corretamente no vetor local do jogo
+                        currentIndex = (currentIndex + 1) % vocabulary.length;
+                        loadCard();
+                    }, 1500);
+                } else {
+                    feedback.innerText = 'Try Again! 🌟';
+                    feedback.style.color = '#F44336';
+                    playFeedbackSound(false);
+
+                    setTimeout(() => {
+                        loadCard();
+                    }, 1200);
+                }
+            }
+        }
+
+        // Initial Load
+        loadCard();
+    </script>
+</body>
+</html>
